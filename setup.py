@@ -55,8 +55,8 @@ for model_name in ['Meta-Llama-3-8B-Instruct', 'Mistral-7B-Instruct-v0.1']:
 model_paths = []
 if args.instruct:
     model_paths += [
-        'mistralai/Mistral-7B-Instruct-v0.1_dpo_NaiveCompletion_2025-03-12-12-01-27', # SecAlign Instruct adapters
-        'meta-llama/Meta-Llama-3-8B-Instruct_dpo_NaiveCompletion_2024-11-12-17-59-06-resized',
+        #'mistralai/Mistral-7B-Instruct-v0.1_dpo_NaiveCompletion_2025-03-12-12-01-27', # SecAlign Instruct adapters
+        #'meta-llama/Meta-Llama-3-8B-Instruct_dpo_NaiveCompletion_2024-11-12-17-59-06-resized',
         #'mistralai/Mistral-7B-Instruct-v0.1_Mistral-7B-Instruct-v0.1_NaiveCompletion_2025-03-12-12-01-27', # StruQ Instruct models
         #'meta-llama/Meta-Llama-3-8B-Instruct_Meta-Llama-3-8B-Instruct_NaiveCompletion_2025-03-18-06-14-30-lr6e-6'
         
@@ -67,15 +67,15 @@ if args.instruct:
     ]
 if args.alpaca: 
     model_paths += [
-        'huggyllama/llama-7b_SpclSpclSpcl_None_2025-03-12-01-01-20', # Undefended Alpaca models
-        'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08',
-        'meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_None_2025-03-12-01-02-14',
+        #'huggyllama/llama-7b_SpclSpclSpcl_None_2025-03-12-01-01-20', # Undefended Alpaca models  1
+        #'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08',  1
+        #'meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_None_2025-03-12-01-02-14',
         #'huggyllama/llama-7b_SpclSpclSpcl_NaiveCompletion_2025-03-12-01-02-37', # StruQ Alpaca models
         #'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_NaiveCompletion_2025-03-15-03-25-16',
-        #'meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_NaiveCompletion_2025-03-18-06-16-46-lr4e-6',
-        'huggyllama/llama-7b_SpclSpclSpcl_None_2025-03-12-01-01-20_dpo_NaiveCompletion_2025-03-12-05-33-03', # SecAlign Alpaca adapters
-        'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08_dpo_NaiveCompletion_2025-03-14-18-26-14',
-        'meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_None_2025-03-12-01-02-14_dpo_NaiveCompletion_2025-03-12-05-33-03'
+        'meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_NaiveCompletion_2025-03-18-06-16-46-lr4e-6',
+        #'huggyllama/llama-7b_SpclSpclSpcl_None_2025-03-12-01-01-20_dpo_NaiveCompletion_2025-03-12-05-33-03', # SecAlign Alpaca adapters
+        #'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2025-03-12-01-02-08_dpo_NaiveCompletion_2025-03-14-18-26-14',
+        #'meta-llama/Meta-Llama-3-8B_SpclSpclSpcl_None_2025-03-12-01-02-14_dpo_NaiveCompletion_2025-03-12-05-33-03'
 
         ##'huggyllama/llama-7b_SpclSpclSpcl_None_2024-06-02-00-00-00', # Undefended Alpaca models
         ##'mistralai/Mistral-7B-v0.1_SpclSpclSpcl_None_2024-07-20-01-59-11',

@@ -16,13 +16,16 @@ from jaxtyping import Float
 
 from gcg.eval_input import EvalInput
 from gcg.types import BatchTokenIds, PrefixCache
-from gcg.utils import (
+from SecAlign.gcg.utils_my import (
     Message,
     SuffixManager,
     batchify_kv_cache,
     build_prompt,
     get_prefix_cache,
 )
+from gcg.role_adapter import is_role_model, build_role_ids_from_input_ids
+from role_utils import ROLE_SYSTEM, ROLE_INPUT, ROLE_ASSISTANT
+from config import SPECIAL_DELM_TOKENS_W
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +33,6 @@ Device = int | str | torch.device
 Devices = list[Device] | tuple[Device]
 BatchLoss = Float[torch.Tensor, "batch_size"]
 BatchLogits = Float[torch.Tensor, "batch_size seq_len vocab_size"]
-
 
 @dataclasses.dataclass
 class LossOutput:
@@ -171,6 +173,50 @@ class TransformersModel:
             clean_up_tokenization_spaces=False,
         )
         return [response]
+    
+    def _dynamic_role_ids(self, batch_input_ids, loss_slice):
+        B, T = batch_input_ids.shape
+        rid = torch.full((B, T), ROLE_INPUT, device=batch_input_ids.device, dtype=torch.long)
+
+        # ASSISTANT 从 loss 开始
+        if isinstance(loss_slice, slice):
+            start = loss_slice.start or 0
+            rid[:, start:] = ROLE_ASSISTANT
+        else:
+            # loss_slice: (B, loss_len, vocab) gather 形式
+            start = loss_slice[:, 0, 0]  # (B,)
+            ar = torch.arange(T, device=batch_input_ids.device).unsqueeze(0)  # (1,T)
+            rid[ar >= start.unsqueeze(1)] = ROLE_ASSISTANT
+
+        # delimiter token 强制 SYSTEM（如果恰好出现在 dynamic 段）
+        delm_ids = [self.tokenizer.convert_tokens_to_ids(t) for t in SPECIAL_DELM_TOKENS_W]
+        for tid in delm_ids:
+            if tid is not None and tid >= 0:
+                rid[batch_input_ids == tid] = ROLE_SYSTEM
+
+        # pad/eos/bos 也可强制 SYSTEM（推荐）
+        for tid in [self.tokenizer.pad_token_id, self.tokenizer.eos_token_id, self.tokenizer.bos_token_id]:
+            if tid is not None:
+                rid[batch_input_ids == tid] = ROLE_SYSTEM
+
+        return rid
+    def _print_unique_roles(self, role_ids: torch.Tensor, prefix: str = ""):
+        # 环境变量开关：ROLE_DEBUG=1 才打印
+        if os.getenv("ROLE_DEBUG", "0") != "1":
+            return
+
+        # 控制频率：ROLE_DEBUG_EVERY=100 之类
+        every = int(os.getenv("ROLE_DEBUG_EVERY", "50"))
+        step = getattr(self, "_role_dbg_step", 0) + 1
+        self._role_dbg_step = step
+        if step % every != 0:
+            return
+
+        # 只看第0条样本，避免太大
+        r0 = role_ids[0].detach()
+        uniq, cnt = torch.unique(r0, return_counts=True)
+        dist = ", ".join([f"{int(u)}:{int(c)}" for u, c in zip(uniq, cnt)])
+        print(f"[ROLE_UNIQ]{prefix} step={step} shape={tuple(role_ids.shape)} dist={dist}", flush=True)
 
     def _get_batch_prefix_cache(self, batch_size: int) -> PrefixCache:
         if self.prefix_cache is None:
@@ -415,12 +461,22 @@ class TransformersModel:
         num_samples = num_samples or len(batch_input_ids)
         input_embeds = self.embed_layer(batch_input_ids)
 
-        # logits: [batch_size, seq_len, vocab_size]
-        logits = self.model(
+        kw = dict(
             inputs_embeds=input_embeds,
             past_key_values=self._get_batch_prefix_cache(len(batch_input_ids)),
             use_cache=True,
-        ).logits[:num_samples]
+        )
+        if is_role_model(self.model):
+            kw["role_ids"] = self._dynamic_role_ids(batch_input_ids, loss_slice)
+            #self._print_unique_roles(kw["role_ids"], prefix=" _compute_loss")
+
+        logits = self.model(**kw).logits[:num_samples]
+        # logits: [batch_size, seq_len, vocab_size]
+        # logits = self.model(
+        #     inputs_embeds=input_embeds,
+        #     past_key_values=self._get_batch_prefix_cache(len(batch_input_ids)),
+        #     use_cache=True,
+        # ).logits[:num_samples]
 
         logits = logits / temperature
 
@@ -470,11 +526,22 @@ class TransformersModel:
 
         with torch.enable_grad():
             # Forward pass
-            logits = self.model(
+            # logits = self.model(
+            #     inputs_embeds=input_embeds,
+            #     past_key_values=self._get_batch_prefix_cache(len(input_embeds)),
+            #     use_cache=True,
+            # ).logits
+            kw = dict(
                 inputs_embeds=input_embeds,
                 past_key_values=self._get_batch_prefix_cache(len(input_embeds)),
                 use_cache=True,
-            ).logits
+            )
+            if is_role_model(self.model):
+                # 这里 input_ids 是 1D，先变 (1,T)
+                kw["role_ids"] = self._dynamic_role_ids(input_ids.unsqueeze(0), loss_slice)
+                #self._print_unique_roles(kw["role_ids"], prefix=" compute_grad")
+
+            logits = self.model(**kw).logits
 
             # Compute loss and gradients
             loss_logits = logits[:, loss_slice].squeeze(0)

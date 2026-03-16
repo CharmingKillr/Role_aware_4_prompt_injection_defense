@@ -24,6 +24,7 @@ def advPrompterOpt(cfg, instruct, target, prompter, target_llm):
         full_instruct=full_instruct,
         target=target,
         loss_params=dict(hard_labels=True, reweight_loss=cfg.reweight_loss),
+        use_role_ids=False,
     )
     losses = target_llm_tf.loss_batch.detach().to(prompter.device)  # (ebs, )
 
@@ -268,6 +269,7 @@ def evaluate_next_token_candidates(
             full_instruct=full_instruct,
             target=target_rep,
             loss_params=dict(hard_labels=True, reweight_loss=cfg.reweight_loss),
+            use_role_ids=False,
         )
 
     loss_batch = target_llm_tf_q.loss_batch.to(next_dist_seq_prompter.device)
@@ -401,6 +403,7 @@ def evaluate_prompt(
             hard_labels=True,
             reweight_loss=cfg.reweight_loss,
         ),
+        use_role_ids=True,
     )
     if cfg.verbose:
         tqdm.write(f" --- Query[{print_idx}]: '{target_llm_tf.query.text[print_idx]}'")
@@ -414,6 +417,7 @@ def evaluate_prompt(
         target_llm_ar = target_llm.generate_autoregressive(
             key="target",
             full_instruct=full_instruct,
+            use_role_ids=True,
         )
         if cfg.verbose:
             tqdm.write(

@@ -20,6 +20,7 @@ from gcg.types import PrefixCache
 
 logger = logging.getLogger(__name__)
 from copy import deepcopy
+from gcg.role_adapter import is_role_model, build_role_ids_from_input_ids
 
 class Role(Enum):
     USER = 1
@@ -66,7 +67,7 @@ def load_model_and_tokenizer(
     temperature: float = 1.0,
     **kwargs,
 ):
-    from gcg.model import TransformersModel
+    from SecAlign.gcg.model_my import TransformersModel
 
     template_name, model_path = model_name.split("@")
     model_path = os.path.expanduser(model_path)
@@ -475,6 +476,10 @@ def get_prefix_cache(
     with torch.no_grad():
         embed_layer = model.get_input_embeddings()
         input_embeds = embed_layer(static_input_ids.to(device)).unsqueeze(0)
-        outputs = model(inputs_embeds=input_embeds, use_cache=True)
+        # outputs = model(inputs_embeds=input_embeds, use_cache=True)
+        kw = dict(inputs_embeds=input_embeds, use_cache=True)
+        if is_role_model(model):
+            kw["role_ids"] = build_role_ids_from_input_ids(static_input_ids, tokenizer).to(input_embeds.device)
+        outputs = model(**kw)
         prefix_cache = outputs.past_key_values
     return prefix_cache, num_static_tokens

@@ -9,9 +9,10 @@ import numpy as np
 import torch
 from ml_collections import ConfigDict
 
-from gcg.base import BaseAttack
+from SecAlign.gcg.base_my import BaseAttack
 from gcg.eval_input import EvalInput
 from gcg.types import BatchTokenIds
+import math
 
 
 def _rand_permute(size, device: str = "cuda", dim: int = -1):
@@ -97,25 +98,47 @@ class GCGAttack(BaseAttack):
 
         batch_size = int(self._batch_size * 1.25)
         old_token_ids = optim_ids.repeat(batch_size, 1)
-
+        
+        # if num_coords == 1:
+        #     # Each position will have `batch_size / len(optim_ids)` candidates
+        #     new_token_pos = torch.arange(
+        #         0,
+        #         len(optim_ids),
+        #         len(optim_ids) / batch_size,
+        #         device=device,
+        #     ).type(torch.int64)
+        #     # Get random indices to select from topk
+        #     # rand_idx: [seq_len, topk, 1]
+        #     rand_idx = _rand_permute((len(optim_ids), self._topk, 1), device=device, dim=1)
+        #     # Get the first (roughly) batch_size / seq_len indices at each position
+        #     rand_idx = torch.cat(
+        #         [r[: (new_token_pos == i).sum()] for i, r in enumerate(rand_idx)],
+        #         dim=0,
+        #     )
+        #     assert rand_idx.shape == (batch_size, 1), rand_idx.shape
+        #     new_token_val = torch.gather(top_indices[new_token_pos], 1, rand_idx)
+        #     new_token_ids = old_token_ids.scatter(1, new_token_pos.unsqueeze(-1), new_token_val)
         if num_coords == 1:
-            # Each position will have `batch_size / len(optim_ids)` candidates
-            new_token_pos = torch.arange(
-                0,
-                len(optim_ids),
-                len(optim_ids) / batch_size,
-                device=device,
-            ).type(torch.int64)
-            # Get random indices to select from topk
-            # rand_idx: [seq_len, topk, 1]
-            rand_idx = _rand_permute((len(optim_ids), self._topk, 1), device=device, dim=1)
-            # Get the first (roughly) batch_size / seq_len indices at each position
-            rand_idx = torch.cat(
-                [r[: (new_token_pos == i).sum()] for i, r in enumerate(rand_idx)],
-                dim=0,
-            )
-            assert rand_idx.shape == (batch_size, 1), rand_idx.shape
-            new_token_val = torch.gather(top_indices[new_token_pos], 1, rand_idx)
+            # 生成候选数：和原来一样用 1.25 倍
+            batch_size = int(self._batch_size * 1.25)
+
+            # old_token_ids: [batch_size, seq_len]
+            old_token_ids = optim_ids.unsqueeze(0).repeat(batch_size, 1)
+
+            seq_len = len(optim_ids)
+
+            # 让每个位置尽量均匀地被覆盖（比纯 randint 更接近你原实现意图）
+            reps = math.ceil(batch_size / seq_len)
+            new_token_pos = torch.arange(seq_len, device=device).repeat(reps)[:batch_size]  # [batch_size]
+
+            # 从 topk 里随机挑一个
+            rand_idx = torch.randint(0, self._topk, (batch_size, 1), device=device)  # [batch_size, 1]
+
+            # top_indices: [seq_len, topk]
+            # top_indices[new_token_pos]: [batch_size, topk]
+            new_token_val = torch.gather(top_indices[new_token_pos], 1, rand_idx)  # [batch_size, 1]
+
+            # 替换对应位置 token
             new_token_ids = old_token_ids.scatter(1, new_token_pos.unsqueeze(-1), new_token_val)
         else:
             # Random choose positions to update

@@ -2,9 +2,14 @@
 # All rights reserved.
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
+import os
+os.environ["WANDB_DISABLED"] = "true"
+import torch
 
+import torch_npu
+from torch_npu.contrib import transfer_to_npu
 from trl import DPOTrainer, KTOTrainer, ORPOTrainer, KTOConfig, ORPOConfig
-import os, re, time
+import re, time
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence
 import numpy as np
@@ -79,6 +84,10 @@ def generate_preference_data(clean_data_path, frontend_delimiters, attack, align
     return load_dataset('json', data_files=preference_data_path, split='train')
 
 def align():
+    local_rank = int(os.environ.get("LOCAL_RANK", 0))
+    device = torch.device(f"npu:{local_rank}")
+    torch_npu.npu.set_device(device)
+    print(f"[Rank {os.environ.get('RANK', '0')}] Using device: {device}")
     parser = transformers.HfArgumentParser((ModelArguments, TrainingArguments, DataArguments, AttackArguments))
     model_args, training_args, data_args, attack_args = parser.parse_args_into_dataclasses()
     if 'Instruct' in model_args.model_name_or_path:  frontend_delimiters = model_args.model_name_or_path.split('/')[-1]

@@ -11,7 +11,6 @@ import logging
 import io, json
 from config import PROMPT_FORMAT, IGNORE_ATTACK_SENTENCES, OTHER_DELM_FOR_TEST, OTHER_DELM_TOKENS, SPECIAL_DELM_TOKENS, DEFAULT_TOKENS, IGNORE_INDEX, TEXTUAL_DELM_TOKENS, DELIMITERS
 
-
 def format_with_other_delimiters(text, test=False):
     test_idx = - OTHER_DELM_FOR_TEST
     mark = np.random.choice(OTHER_DELM_TOKENS['mark'][test_idx:] if test else OTHER_DELM_TOKENS['mark'][:test_idx]) + ':'
@@ -121,7 +120,6 @@ def preprocess(sources, targets, tokenizer):
     labels = deepcopy(input_ids)
     for label, source_len in zip(labels, sources_tokenized["input_ids_lens"]):label[:source_len] = IGNORE_INDEX
     return dict(input_ids=input_ids, labels=labels)
-
 
 class SupervisedDataset(Dataset):
     def __init__(self, data_path: str, tokenizer, attack, downsample=True):

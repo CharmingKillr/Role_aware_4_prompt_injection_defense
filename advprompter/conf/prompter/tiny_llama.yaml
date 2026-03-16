@@ -4,7 +4,7 @@ defaults:
 
 llm_params:
   model_name: "tiny_llama"
-  checkpoint: 'TinyLlama/TinyLlama-1.1B-step-50K-105b'
+  checkpoint: '/workspace/huggingface_model/TinyLlama-1.1B-step-50K-105b'   #TinyLlama/TinyLlama-1.1B-step-50K-105b
   lora_params:
     warmstart: false
     lora_checkpoint: null

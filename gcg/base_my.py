@@ -18,9 +18,9 @@ import transformers
 from ml_collections import ConfigDict
 
 from gcg.eval_input import EvalInput, LengthMismatchError
-from gcg.model import TransformersModel
+from SecAlign.gcg.model_my import TransformersModel
 from gcg.types import BatchTokenIds
-from gcg.utils import Message, SuffixManager
+from SecAlign.gcg.utils_my import Message, SuffixManager
 
 logger = logging.getLogger(__name__)
 

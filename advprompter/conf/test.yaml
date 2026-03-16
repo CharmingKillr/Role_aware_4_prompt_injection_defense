@@ -31,7 +31,7 @@ train:
       jailbreaking: 1.0
   prompter_optim_params:
     lr: 5e-4
-  batch_size: 4 #4 #2 #8
+  batch_size: 2 #4 #2 #8
   q_params:
     max_new_tokens: 30 #10 #30  # top_k % (num_chunks * num_beams_in) == 0
     num_beams: 4 #4 #1 #4 #2 #4 #2

@@ -4,7 +4,7 @@ defaults:
 
 llm_params:
   model_name: "llama2-7b"
-  checkpoint: 'meta-llama/Llama-2-7b-hf' # or replace with local DIR
+  checkpoint: '/workspace/huggingface_model/Llama-2-7b-hf' # or replace with local DIR meta-llama/Llama-2-7b-hf
   lora_params:
     warmstart: false
     lora_checkpoint: null #exp/local/2024.07.04/043448_mistral-none/checkpoints/step_2100

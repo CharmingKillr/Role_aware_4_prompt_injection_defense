@@ -2,19 +2,22 @@
 # All rights reserved.
 # This source code is licensed under the license found in the
 # LICENSE file in the root directory of this source tree.
-import os
-os.environ["WANDB_DISABLED"] = "true"
 import torch
 
 import torch_npu
 from torch_npu.contrib import transfer_to_npu
 from torch.distributed.fsdp import FullyShardedDataParallel as FSDP
 from torch.distributed.fsdp import StateDictType, FullStateDictConfig
+import os
+os.environ["WANDB_DISABLED"] = "true"
 from dataclasses import dataclass, field
 from typing import Dict, Optional, Sequence
 import transformers
 import trl
-from struq import SupervisedDataset
+from struq_my import SupervisedDataset
+
+from role_modeling import LlamaForCausalLMWithRole, MistralForCausalLMWithRole
+from role_utils import ROLE_SYSTEM
 from config import IGNORE_INDEX, DEFAULT_TOKENS, SPECIAL_DELM_TOKENS, TEXTUAL_DELM_TOKENS, SPECIAL_DELM_TOKENS_W, TEXTUAL_DELM_TOKENS_W
 
 @dataclass
@@ -39,6 +42,10 @@ class TrainingArguments(trl.ORPOConfig):#transformers.TrainingArguments): #
         default=512,
         metadata={"help": "Maximum sequence length. Sequences will be right padded (and possibly truncated)."},
     )
+    fsdp_state_dict_type: Optional[str] = field(
+        default="FULL_STATE_DICT",
+        metadata={"help": "Make FSDP save a consolidated full state dict on rank 0."}
+    )
     downsample: Optional[bool] = field(default=True)
     lr_scale: Optional[bool] = field(default=True)
     beta: float = field(default=0.1)
@@ -47,22 +54,42 @@ class TrainingArguments(trl.ORPOConfig):#transformers.TrainingArguments): #
     desirable_weight: Optional[float] = field(default=1)
     undesirable_weight: Optional[float] = field(default=1)
 
+    #
+    num_roles: int = field(default=4, metadata={"help": "Number of role types for role embeddings."})
+    role_embedding_scale: float = field(
+        default=1.0,
+        metadata={"help": "Scale factor for role embeddings added to token embeddings."},
+    )
+
 @dataclass
 class DataCollatorForSupervisedDataset(object):
-    """Collate examples for supervised fine-tuning."""
+    """Collate examples for supervised fine-tuning (role-aware)."""
 
     tokenizer: transformers.PreTrainedTokenizer
 
     def __call__(self, instances: Sequence[Dict]) -> Dict[str, torch.Tensor]:
-        input_ids, labels = tuple([instance[key] for instance in instances] for key in ("input_ids", "labels"))
+        input_ids, labels, role_ids = tuple(
+            [instance[key] for instance in instances]
+            for key in ("input_ids", "labels", "role_ids")
+        )
+
         input_ids = torch.nn.utils.rnn.pad_sequence(
             input_ids, batch_first=True, padding_value=self.tokenizer.pad_token_id
         )
-        labels = torch.nn.utils.rnn.pad_sequence(labels, batch_first=True, padding_value=IGNORE_INDEX)
+        labels = torch.nn.utils.rnn.pad_sequence(
+            labels, batch_first=True, padding_value=IGNORE_INDEX
+        )
+        role_ids = torch.nn.utils.rnn.pad_sequence(
+            role_ids, batch_first=True, padding_value=ROLE_SYSTEM
+        )
+
+        attention_mask = input_ids.ne(self.tokenizer.pad_token_id)
+
         return dict(
             input_ids=input_ids,
             labels=labels,
-            attention_mask=input_ids.ne(self.tokenizer.pad_token_id),
+            role_ids=role_ids,
+            attention_mask=attention_mask,
         )
 
 def smart_tokenizer_and_embedding_resize(model, tokenizer):
@@ -72,19 +99,14 @@ def smart_tokenizer_and_embedding_resize(model, tokenizer):
     The textual delimiters (used for special delimiter initialization) are denoted by TEXTUAL_DELM_TOKENS in config.py
     The model/tokenizer is not deepcopied, so no need to return
     """
-    assert len(SPECIAL_DELM_TOKENS) == len(TEXTUAL_DELM_TOKENS)
-    #assert len(SPECIAL_DELM_TOKENS_W) == len(TEXTUAL_DELM_TOKENS_W)
-
+    assert len(SPECIAL_DELM_TOKENS_W) == len(TEXTUAL_DELM_TOKENS_W)
     num_new_tokens = tokenizer.add_special_tokens({
         'pad_token': DEFAULT_TOKENS['pad_token'],
-        'additional_special_tokens': SPECIAL_DELM_TOKENS
-        #'additional_special_tokens': SPECIAL_DELM_TOKENS_W
+        'additional_special_tokens': SPECIAL_DELM_TOKENS_W
         })
     model.resize_token_embeddings(len(tokenizer))
-    delimiter_init_embed_index_from_text = [tokenizer.encode(v, add_special_tokens=False)[0] for v in TEXTUAL_DELM_TOKENS]
-    #delimiter_init_embed_index_from_text = [tokenizer.encode(v, add_special_tokens=False)[0] for v in TEXTUAL_DELM_TOKENS_W]
-    assert num_new_tokens == len(SPECIAL_DELM_TOKENS) + 1
-    #assert num_new_tokens == len(SPECIAL_DELM_TOKENS_W) + 1
+    delimiter_init_embed_index_from_text = [tokenizer.encode(v, add_special_tokens=False)[0] for v in TEXTUAL_DELM_TOKENS_W]
+    assert num_new_tokens == len(SPECIAL_DELM_TOKENS_W) + 1
 
     input_embeddings = model.get_input_embeddings().weight.data
     output_embeddings = model.get_output_embeddings().weight.data
@@ -94,7 +116,7 @@ def smart_tokenizer_and_embedding_resize(model, tokenizer):
     output_embeddings[-num_new_tokens] = output_embeddings[:-num_new_tokens].mean(dim=0, keepdim=True)
 
     # Initialize the 5 StruQ delimiters with the embeddings of the corresponding textual delimiters
-    for i in range(len(SPECIAL_DELM_TOKENS)):
+    for i in range(len(SPECIAL_DELM_TOKENS_W)):
         index = -num_new_tokens+i+1
         print('Initialize special delimiter token', tokenizer.decode(len(tokenizer) + index), 'from the embedding of', tokenizer.decode(delimiter_init_embed_index_from_text[i]))
         input_embeddings[index] = input_embeddings[delimiter_init_embed_index_from_text[i]]
@@ -111,7 +133,7 @@ def make_supervised_data_module(tokenizer: transformers.PreTrainedTokenizer, dat
 def train():
     parser = transformers.HfArgumentParser((ModelArguments, DataArguments, TrainingArguments, AttackArguments))
     model_args, data_args, training_args, attack_args = parser.parse_args_into_dataclasses()
-    data_args.attack = attack_args.attack 
+    data_args.attack = attack_args.attack
 
     training_args.gradient_checkpointing = True
 
@@ -123,10 +145,25 @@ def train():
     if 'Instruct' in model_args.model_name_or_path: assert 'SpclSpclSpcl' not in data_args.attack
     print('\n\n' + training_args.output_dir + '\n\n')
 
-    model = transformers.AutoModelForCausalLM.from_pretrained(
+    # 用带 role embedding 的模型；否则保持原样
+    
+    config = transformers.AutoConfig.from_pretrained(
         model_args.model_name_or_path,
         cache_dir=training_args.cache_dir,
     )
+    config.num_roles = training_args.num_roles
+    config.role_embedding_scale = training_args.role_embedding_scale
+    
+    if config.model_type == "llama":
+        model = LlamaForCausalLMWithRole.from_pretrained(
+            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+        )
+    elif config.model_type == "mistral":
+        model = MistralForCausalLMWithRole.from_pretrained(
+            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+        )
+    else:
+        raise NotImplementedError(f"role model not implemented for model_type={config.model_type}")
 
     # 
     model.config.use_cache = False
@@ -149,7 +186,7 @@ def train():
     data_module = make_supervised_data_module(tokenizer=tokenizer, data_args=data_args, downsample=training_args.downsample)
     if not training_args.downsample and training_args.lr_scale:
         training_args.learning_rate /= data_module["train_dataset"].data_copy_count
-        
+
     trainer = transformers.Trainer(model=model, tokenizer=tokenizer, args=training_args, **data_module)
     trainer.train()
     #
@@ -174,8 +211,8 @@ def train():
         trainer.accelerator.wait_for_everyone()
     else:
         trainer.save_model(output_dir=training_args.output_dir)
-    # trainer.save_state()
-    # trainer.save_model(output_dir=training_args.output_dir)
+    #trainer.save_state()
+    #trainer.save_model(output_dir=training_args.output_dir)
 
     
 if __name__ == "__main__":

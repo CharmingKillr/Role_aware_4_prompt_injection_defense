@@ -9,6 +9,7 @@ from copy import copy
 from datetime import datetime
 
 import csv
+import os
 import hydra
 import numpy as np
 import omegaconf
@@ -51,8 +52,8 @@ class Workspace:
         self.enable_wandb = cfg.wandb_params.enable_wandb
         self.starttime = datetime.now()
 
-        # if self.enable_wandb:
-        #     self.init_wandb()
+        if self.enable_wandb:
+            self.init_wandb()
 
         tqdm.write("Initializing Prompter...")
         self.prompter = LLM(cfg.prompter, verbose=self.verbose)
@@ -67,20 +68,20 @@ class Workspace:
         self.train_table = wandb.Table(columns=column_names)
         self.eval_table = wandb.Table(columns=column_names)
 
-    # @torch.no_grad()
-    # def init_wandb(self):
-    #     tqdm.write("Initializing Wandb...")
-    #     wandb_id = wandb.util.generate_id()
-    #     config = omegaconf.OmegaConf.to_container(
-    #         self.cfg, resolve=True, throw_on_missing=True
-    #     )
-    #     wandb.init(
-    #         entity=self.cfg.wandb_params.entity,
-    #         project=self.cfg.wandb_params.project,
-    #         config=config,
-    #         id=wandb_id,
-    #         resume="allow",
-    #     )
+    @torch.no_grad()
+    def init_wandb(self):
+        tqdm.write("Initializing Wandb...")
+        wandb_id = wandb.util.generate_id()
+        config = omegaconf.OmegaConf.to_container(
+            self.cfg, resolve=True, throw_on_missing=True
+        )
+        wandb.init(
+            entity=self.cfg.wandb_params.entity,
+            project=self.cfg.wandb_params.project,
+            config=config,
+            id=wandb_id,
+            resume="allow",
+        )
 
     @torch.no_grad()
     def save_prompter(self):

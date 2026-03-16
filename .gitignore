@@ -6,4 +6,30 @@ core.*
 huggyllama
 mistralai
 meta-llama
+*.log# ---- checkpoints / weights ----
+**/checkpoints/
+**/checkpoint/
+**/weights/
+**/weight/
+**/ckpt/
+**/models/
+**/model_ckpt/
+**/outputs/
+**/output/
+**/runs/
+**/wandb/
+**/.cache/
+
+# ---- common weight file extensions ----
+*.pt
+*.pth
+*.ckpt
+*.bin
+*.safetensors
+*.onnx
+*.npz
+*.npy
+
+# ---- logs ----
 *.log
+run.txt
