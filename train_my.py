@@ -60,6 +60,18 @@ class TrainingArguments(trl.ORPOConfig):#transformers.TrainingArguments): #
         default=1.0,
         metadata={"help": "Scale factor for role embeddings added to token embeddings."},
     )
+    role_encoding_type: str = field(
+        default="additive",
+        metadata={"help": "Role encoding type: additive | sinusoidal_rotary."},
+    )
+    role_rotary_scale: float = field(
+        default=1.0,
+        metadata={"help": "Max phase scale for sinusoidal_rotary role modulation."},
+    )
+    role_rotary_dim: int = field(
+        default=0,
+        metadata={"help": "Rotary dimension for role modulation; <=0 means full hidden size."},
+    )
 
 @dataclass
 class DataCollatorForSupervisedDataset(object):
@@ -153,6 +165,9 @@ def train():
     )
     config.num_roles = training_args.num_roles
     config.role_embedding_scale = training_args.role_embedding_scale
+    config.role_encoding_type = training_args.role_encoding_type
+    config.role_rotary_scale = training_args.role_rotary_scale
+    config.role_rotary_dim = None if training_args.role_rotary_dim <= 0 else training_args.role_rotary_dim
     
     if config.model_type == "llama":
         model = LlamaForCausalLMWithRole.from_pretrained(

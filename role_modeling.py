@@ -183,8 +183,48 @@ class RoleEmbeddingMixin():
     def _init_role(self, config):
         self.num_roles = getattr(config, "num_roles", 4)
         self.role_embedding_scale = getattr(config, "role_embedding_scale", 1.0)
+        # additive: 纯加法角色嵌入（原始方案）
+        # sinusoidal_rotary: 在加法基础上，再做一次 role-conditioned 旋转调制（sin/cos）
+        self.role_encoding_type = getattr(config, "role_encoding_type", "additive")
+        self.role_rotary_scale = getattr(config, "role_rotary_scale", 1.0)
+        self.role_rotary_dim = getattr(config, "role_rotary_dim", None)
         self.role_embeddings = nn.Embedding(self.num_roles, config.hidden_size)
         nn.init.zeros_(self.role_embeddings.weight)
+
+    def _resolve_rotary_dim(self, hidden_size: int) -> int:
+        if self.role_rotary_dim is None:
+            d = hidden_size
+        else:
+            d = min(int(self.role_rotary_dim), hidden_size)
+        # 旋转按偶数维配对
+        return max(0, d - (d % 2))
+
+    def _apply_role_rotary(self, token_like: torch.Tensor, role_embeds: torch.Tensor) -> torch.Tensor:
+        # token_like / role_embeds: (B, L, H)
+        rotary_dim = self._resolve_rotary_dim(token_like.shape[-1])
+        if rotary_dim <= 0:
+            return token_like
+
+        x = token_like[..., :rotary_dim]
+        x_even, x_odd = x[..., 0::2], x[..., 1::2]
+
+        # 用 role embedding 的偶数维产生相位，范围压到 [-role_rotary_scale, role_rotary_scale]
+        role_phase = role_embeds[..., :rotary_dim][..., 0::2]
+        theta = torch.tanh(role_phase) * float(self.role_rotary_scale)
+        theta = theta.to(dtype=token_like.dtype)
+        cos_t, sin_t = torch.cos(theta), torch.sin(theta)
+
+        x_rot_even = x_even * cos_t - x_odd * sin_t
+        x_rot_odd = x_even * sin_t + x_odd * cos_t
+
+        x_rot = torch.empty_like(x)
+        x_rot[..., 0::2] = x_rot_even
+        x_rot[..., 1::2] = x_rot_odd
+
+        if rotary_dim == token_like.shape[-1]:
+            return x_rot
+
+        return torch.cat([x_rot, token_like[..., rotary_dim:]], dim=-1)
 
     @staticmethod
     def _align_role_ids(role_ids: torch.LongTensor, ref_input_ids: torch.LongTensor):
@@ -217,6 +257,9 @@ class RoleEmbeddingMixin():
         role_embeds = self.role_embeddings(role_ids)
         inputs_embeds = token_embeds + self.role_embedding_scale * role_embeds
 
+        if self.role_encoding_type == "sinusoidal_rotary":
+            inputs_embeds = self._apply_role_rotary(inputs_embeds, role_embeds)
+
         if getattr(self.model, "embed_scale", None) is not None:
             inputs_embeds = inputs_embeds * self.model.embed_scale
 
@@ -230,7 +273,10 @@ class RoleEmbeddingMixin():
         role_ids = self._align_role_ids(role_ids, ref).clamp(0, self.num_roles - 1)
 
         role_embeds = self.role_embeddings(role_ids).to(dtype=inputs_embeds.dtype, device=inputs_embeds.device)
-        return inputs_embeds + self.role_embedding_scale * role_embeds
+        out = inputs_embeds + self.role_embedding_scale * role_embeds
+        if self.role_encoding_type == "sinusoidal_rotary":
+            out = self._apply_role_rotary(out, role_embeds)
+        return out
 
     def _postprocess_generation_role_ids(self, outputs, model_kwargs):
         role_ids = model_kwargs.get("role_ids", None)
