@@ -18,16 +18,16 @@ set -e
 # wait $pid3
 # sleep 120
 
-ASCEND_RT_VISIBLE_DEVICES=4,5,6,7 nohup python -u run_my.py --do_sft --sft_attack RoleSpclSpclSpcl_NaiveCompletion -m /workspace/huggingface_model/Mistral-7B-v0.1 > ours_sft_mis7b_train_NIC_new_5.log 2>&1 &
+ASCEND_RT_VISIBLE_DEVICES=4,5,6,7 nohup python -u run_my.py --do_sft --sft_attack RoleSpclSpclSpcl_NaiveCompletion -m /workspace/huggingface_model/Mistral-7B-v0.1 > ours_sft_mis7b_train_NC_latest_6.log 2>&1 &
 pid1=$!
 
 wait $pid1
 sleep 120
 
-ASCEND_RT_VISIBLE_DEVICES=4,5,6,7 nohup python -u run_my.py --do_sft --sft_attack RoleSpclSpclSpcl_NaiveCompletion -m /workspace/huggingface_model/Meta-Llama-3-8B > ours_sft_meta3_8b_train_NIC_new_5.log 2>&1 &
+ASCEND_RT_VISIBLE_DEVICES=4,5,6,7 nohup python -u run_my.py --do_sft --sft_attack RoleSpclSpclSpcl_NaiveCompletion -m /workspace/huggingface_model/Meta-Llama-3-8B > ours_sft_meta3_8b_train_NC_latest_6.log 2>&1 &
 pid2=$!
 
 wait $pid2
 sleep 120
 
-ASCEND_RT_VISIBLE_DEVICES=4,5,6,7 nohup python -u run_my.py --do_sft --sft_attack RoleSpclSpclSpcl_NaiveCompletion -m /workspace/huggingface_model/llama-7b > ours_sft_llama7b_train_NIC_new_5.log 2>&1 &
+ASCEND_RT_VISIBLE_DEVICES=4,5,6,7 nohup python -u run_my.py --do_sft --sft_attack RoleSpclSpclSpcl_NaiveCompletion -m /workspace/huggingface_model/llama-7b > ours_sft_llama7b_train_NC_latest_6.log 2>&1 &
