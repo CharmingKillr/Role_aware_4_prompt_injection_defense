@@ -174,6 +174,20 @@ try:
 except Exception:
     from transformers import MistralForCausalLM, MistralConfig
 
+# Qwen2
+try:
+    from transformers.models.qwen2.modeling_qwen2 import Qwen2ForCausalLM
+    from transformers import Qwen2Config
+except Exception:
+    from transformers import Qwen2ForCausalLM, Qwen2Config
+
+# Gemma2
+try:
+    from transformers.models.gemma2.modeling_gemma2 import Gemma2ForCausalLM
+    from transformers import Gemma2Config
+except Exception:
+    from transformers import Gemma2ForCausalLM, Gemma2Config
+
 
 class RoleEmbeddingMixin():
     """
@@ -374,6 +388,112 @@ class MistralForCausalLMWithRole(MistralForCausalLM, RoleEmbeddingMixin):
                 input_ids = None
             elif inputs_embeds is not None:
                 # gcg / advp-soft 经常走 inputs_embeds 路径
+                inputs_embeds = self._inject_role_into_inputs_embeds(
+                    inputs_embeds=inputs_embeds, role_ids=role_ids
+                )
+        return super().forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            labels=labels,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            **kwargs
+        )
+
+    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, attention_mask=None, role_ids=None, **kwargs):
+        model_inputs = super().prepare_inputs_for_generation(
+            input_ids=input_ids,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            **kwargs
+        )
+
+        if role_ids is not None:
+            ref = model_inputs.get("input_ids", input_ids)
+            model_inputs["role_ids"] = self._align_role_ids(role_ids, ref)
+
+        return model_inputs
+
+    def _update_model_kwargs_for_generation(self, outputs, model_kwargs, is_encoder_decoder: bool = False, **extra_kwargs):
+        model_kwargs = super()._update_model_kwargs_for_generation(
+            outputs, model_kwargs, is_encoder_decoder=is_encoder_decoder, **extra_kwargs
+        )
+        return self._postprocess_generation_role_ids(outputs, model_kwargs)
+
+
+class Qwen2ForCausalLMWithRole(Qwen2ForCausalLM, RoleEmbeddingMixin):
+    def __init__(self, config: Qwen2Config, **kwargs):
+        super().__init__(config)
+        self._init_role(config)
+
+    def forward(self, input_ids=None, attention_mask=None, position_ids=None,
+                past_key_values=None, role_ids=None, inputs_embeds=None,
+                labels=None, use_cache=None, output_attentions=None,
+                output_hidden_states=None, return_dict=None, **kwargs):
+
+        if role_ids is not None:
+            if input_ids is not None and inputs_embeds is None:
+                inputs_embeds = self._inject_role_embeds(input_ids=input_ids, role_ids=role_ids)
+                input_ids = None
+            elif inputs_embeds is not None:
+                inputs_embeds = self._inject_role_into_inputs_embeds(
+                    inputs_embeds=inputs_embeds, role_ids=role_ids
+                )
+        return super().forward(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            labels=labels,
+            use_cache=use_cache,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            return_dict=return_dict,
+            **kwargs
+        )
+
+    def prepare_inputs_for_generation(self, input_ids, past_key_values=None, attention_mask=None, role_ids=None, **kwargs):
+        model_inputs = super().prepare_inputs_for_generation(
+            input_ids=input_ids,
+            past_key_values=past_key_values,
+            attention_mask=attention_mask,
+            **kwargs
+        )
+
+        if role_ids is not None:
+            ref = model_inputs.get("input_ids", input_ids)
+            model_inputs["role_ids"] = self._align_role_ids(role_ids, ref)
+
+        return model_inputs
+
+    def _update_model_kwargs_for_generation(self, outputs, model_kwargs, is_encoder_decoder: bool = False, **extra_kwargs):
+        model_kwargs = super()._update_model_kwargs_for_generation(
+            outputs, model_kwargs, is_encoder_decoder=is_encoder_decoder, **extra_kwargs
+        )
+        return self._postprocess_generation_role_ids(outputs, model_kwargs)
+
+
+class Gemma2ForCausalLMWithRole(Gemma2ForCausalLM, RoleEmbeddingMixin):
+    def __init__(self, config: Gemma2Config, **kwargs):
+        super().__init__(config)
+        self._init_role(config)
+
+    def forward(self, input_ids=None, attention_mask=None, position_ids=None,
+                past_key_values=None, role_ids=None, inputs_embeds=None,
+                labels=None, use_cache=None, output_attentions=None,
+                output_hidden_states=None, return_dict=None, **kwargs):
+
+        if role_ids is not None:
+            if input_ids is not None and inputs_embeds is None:
+                inputs_embeds = self._inject_role_embeds(input_ids=input_ids, role_ids=role_ids)
+                input_ids = None
+            elif inputs_embeds is not None:
                 inputs_embeds = self._inject_role_into_inputs_embeds(
                     inputs_embeds=inputs_embeds, role_ids=role_ids
                 )
