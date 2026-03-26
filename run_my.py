@@ -30,15 +30,44 @@ LR_CONFIG = {
     'Meta-Llama-3-8B': {
         'lr':     '2e-6', 
         'dpo_lr': '1.6e-4',
-    }
+    },
+    'Qwen2.5-7B': {
+        'lr':     '2e-6',
+        'dpo_lr': '1.2e-4',
+    },
+    'gemma-2-9b': {
+        'lr':     '1.5e-6',
+        'dpo_lr': '1.0e-4',
+    },
 }
+
+
+def _resolve_lr_key(model_path: str) -> str:
+    model_clean = model_path.replace('-Instruct', '')
+    base_name = os.path.basename(model_clean)
+    direct_key = base_name.split('_')[0]
+    if direct_key in LR_CONFIG:
+        return direct_key
+
+    name_lower = base_name.lower()
+    if 'qwen2.5-7b' in name_lower:
+        return 'Qwen2.5-7B'
+    if 'gemma-2-9b' in name_lower:
+        return 'gemma-2-9b'
+    if 'meta-llama-3-8b' in name_lower or 'llama-3-8b' in name_lower:
+        return 'Meta-Llama-3-8B'
+    if 'mistral-7b-v0.1' in name_lower:
+        return 'Mistral-7B-v0.1'
+    if 'llama-7b' in name_lower:
+        return 'llama-7b'
+    if 'llama-13b' in name_lower:
+        return 'llama-13b'
+
+    raise KeyError(f"Cannot resolve LR config key for model: {model_path}")
 
 def get_sft_cmd(model, attack, data_path, model_max_length):
     current_t = datetime.datetime.fromtimestamp(datetime.datetime.now().timestamp()).strftime("%Y-%m-%d-%H-%M-%S")
-    # lr = LR_CONFIG[model.replace('-Instruct', '').split('/')[1].split('_')[0]]['lr']
-    model_clean = model.replace('-Instruct', '')
-    base_name = os.path.basename(model_clean)      # '/workspace/.../llama-7b' -> 'llama-7b'
-    lr_key = base_name.split('_')[0]               # 'llama-7b_Role...' -> 'llama-7b'
+    lr_key = _resolve_lr_key(model)
     lr = LR_CONFIG[lr_key]['lr']
     if '-Instruct' in model: 
         if 'Spcl' in attack or 'Text' in attack: attack = attack.replace(attack[:12], model.split('/')[-1])
@@ -136,12 +165,57 @@ def get_sft_cmd(model, attack, data_path, model_max_length):
             --fsdp_transformer_layer_cls_to_wrap "LlamaDecoderLayer" \
             --attack {attack}\
             --model_max_length {model_max_length}'
+    elif 'Qwen2.5-7B' in model.replace('-Instruct', '') or 'qwen2.5-7b' in model.lower():
+        return f'python -m torch.distributed.run --nproc_per_node=4 --master_port={29550 + np.random.randint(0, 1000)} train_my.py \
+            --model_name_or_path {model} \
+            --data_path {data_path} \
+            --bf16 True \
+            --output_dir {model}_{attack}_{current_t} \
+            --num_train_epochs 5 \
+            --per_device_train_batch_size 2 \
+            --per_device_eval_batch_size 4 \
+            --gradient_accumulation_steps 16 \
+            --evaluation_strategy "no" \
+            --save_strategy "no" \
+            --save_total_limit 1 \
+            --learning_rate {lr} \
+            --weight_decay 0. \
+            --warmup_ratio 0.03 \
+            --lr_scheduler_type "cosine" \
+            --logging_steps 1 \
+            --fsdp "full_shard auto_wrap" \
+            --fsdp_transformer_layer_cls_to_wrap "Qwen2DecoderLayer" \
+            --attack {attack}\
+            --model_max_length {model_max_length}'
+    elif 'gemma-2-9b' in model.lower() or 'Gemma-2-9b' in model.replace('-Instruct', ''):
+        return f'python -m torch.distributed.run --nproc_per_node=4 --master_port={29550 + np.random.randint(0, 1000)} train_my.py \
+            --model_name_or_path {model} \
+            --data_path {data_path} \
+            --bf16 True \
+            --output_dir {model}_{attack}_{current_t} \
+            --num_train_epochs 5 \
+            --per_device_train_batch_size 1 \
+            --per_device_eval_batch_size 4 \
+            --gradient_accumulation_steps 32 \
+            --evaluation_strategy "no" \
+            --save_strategy "no" \
+            --save_total_limit 1 \
+            --learning_rate {lr} \
+            --weight_decay 0. \
+            --warmup_ratio 0.03 \
+            --lr_scheduler_type "cosine" \
+            --logging_steps 1 \
+            --fsdp "full_shard auto_wrap" \
+            --fsdp_transformer_layer_cls_to_wrap "Gemma2DecoderLayer" \
+            --attack {attack}\
+            --model_max_length {model_max_length}'
     else: raise NotImplementedError
 
 def get_align_cmd(model, attack, alignment, data_path, model_max_length):
     base_model = model.split('/')[-2] + '/' + model.split('/')[-1].split('_')[0]
     current_t = datetime.datetime.fromtimestamp(datetime.datetime.now().timestamp()).strftime("%Y-%m-%d-%H-%M-%S")
-    lr = LR_CONFIG[base_model.replace('-Instruct', '').split('/')[1]][alignment + '_lr']
+    lr_key = _resolve_lr_key(base_model)
+    lr = LR_CONFIG[lr_key][alignment + '_lr']
     if 'llama-7b' in base_model.replace('-Instruct', ''):
         return f'python -m torch.distributed.run  --nproc_per_node=4 --master_port={29550 + np.random.randint(0, 1000)} align_role.py \
             --remove_unused_columns False \
@@ -219,6 +293,46 @@ def get_align_cmd(model, attack, alignment, data_path, model_max_length):
             --per_device_train_batch_size 2 \
             --learning_rate {lr} \
             --fsdp_transformer_layer_cls_to_wrap "LlamaDecoderLayer" \
+            --fsdp "full_shard auto_wrap" \
+            --lr_scheduler_type "cosine" \
+            --gradient_accumulation_steps 32 \
+            --output_dir {model}_{alignment}_{attack}_{current_t} \
+            --num_train_epochs 3 \
+            --attack {attack} \
+            --alignment {alignment}\
+            --model_max_length {model_max_length}'
+    elif 'Qwen2.5-7B' in base_model.replace('-Instruct', '') or 'qwen2.5-7b' in base_model.lower():
+        return f'python -m torch.distributed.run  --nproc_per_node=4 --master_port={29550 + np.random.randint(0, 1000)} align_role.py \
+            --remove_unused_columns False \
+            --model_name_or_path {model} \
+            --data_path {data_path} \
+            --evaluation_strategy "no" \
+            --save_strategy "no" \
+            --logging_steps 1 \
+            --bf16 True \
+            --per_device_train_batch_size 2 \
+            --learning_rate {lr} \
+            --fsdp_transformer_layer_cls_to_wrap "Qwen2DecoderLayer" \
+            --fsdp "full_shard auto_wrap" \
+            --lr_scheduler_type "cosine" \
+            --gradient_accumulation_steps 32 \
+            --output_dir {model}_{alignment}_{attack}_{current_t} \
+            --num_train_epochs 3 \
+            --attack {attack} \
+            --alignment {alignment}\
+            --model_max_length {model_max_length}'
+    elif 'gemma-2-9b' in base_model.lower() or 'Gemma-2-9b' in base_model.replace('-Instruct', ''):
+        return f'python -m torch.distributed.run  --nproc_per_node=4 --master_port={29550 + np.random.randint(0, 1000)} align_role.py \
+            --remove_unused_columns False \
+            --model_name_or_path {model} \
+            --data_path {data_path} \
+            --evaluation_strategy "no" \
+            --save_strategy "no" \
+            --logging_steps 1 \
+            --bf16 True \
+            --per_device_train_batch_size 1 \
+            --learning_rate {lr} \
+            --fsdp_transformer_layer_cls_to_wrap "Gemma2DecoderLayer" \
             --fsdp "full_shard auto_wrap" \
             --lr_scheduler_type "cosine" \
             --gradient_accumulation_steps 32 \

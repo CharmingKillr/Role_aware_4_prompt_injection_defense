@@ -16,7 +16,12 @@ import transformers
 import trl
 from struq_my import SupervisedDataset
 
-from role_modeling import LlamaForCausalLMWithRole, MistralForCausalLMWithRole
+from role_modeling import (
+    LlamaForCausalLMWithRole,
+    MistralForCausalLMWithRole,
+    Qwen2ForCausalLMWithRole,
+    Gemma2ForCausalLMWithRole,
+)
 from role_utils import ROLE_SYSTEM
 from config import IGNORE_INDEX, DEFAULT_TOKENS, SPECIAL_DELM_TOKENS, TEXTUAL_DELM_TOKENS, SPECIAL_DELM_TOKENS_W, TEXTUAL_DELM_TOKENS_W
 
@@ -175,6 +180,14 @@ def train():
         )
     elif config.model_type == "mistral":
         model = MistralForCausalLMWithRole.from_pretrained(
+            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+        )
+    elif config.model_type == "qwen2":
+        model = Qwen2ForCausalLMWithRole.from_pretrained(
+            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+        )
+    elif config.model_type == "gemma2":
+        model = Gemma2ForCausalLMWithRole.from_pretrained(
             model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
         )
     else:
