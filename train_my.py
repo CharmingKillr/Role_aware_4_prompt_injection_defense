@@ -135,7 +135,13 @@ def smart_tokenizer_and_embedding_resize(model, tokenizer):
     # Initialize the 5 StruQ delimiters with the embeddings of the corresponding textual delimiters
     for i in range(len(SPECIAL_DELM_TOKENS_W)):
         index = -num_new_tokens+i+1
-        print('Initialize special delimiter token', tokenizer.decode(len(tokenizer) + index), 'from the embedding of', tokenizer.decode(delimiter_init_embed_index_from_text[i]))
+        # Gemma tokenizer expects an iterable of ids in decode(); passing an int raises TypeError.
+        print(
+            'Initialize special delimiter token',
+            tokenizer.decode([len(tokenizer) + index]),
+            'from the embedding of',
+            tokenizer.decode([delimiter_init_embed_index_from_text[i]]),
+        )
         input_embeddings[index] = input_embeddings[delimiter_init_embed_index_from_text[i]]
         output_embeddings[index] = output_embeddings[delimiter_init_embed_index_from_text[i]]
 
@@ -174,21 +180,31 @@ def train():
     config.role_rotary_scale = training_args.role_rotary_scale
     config.role_rotary_dim = None if training_args.role_rotary_dim <= 0 else training_args.role_rotary_dim
     
+    # Ascend NPU often OOMs inside FlashAttentionScore for long-context SFT; use eager attention by default.
+    # Set FORCE_FLASH_ATTN=1 to keep the model's default attention backend.
+    force_flash_attn = os.environ.get("FORCE_FLASH_ATTN", "0") == "1"
+    common_model_kwargs = dict(
+        cache_dir=training_args.cache_dir,
+        config=config,
+    )
+    if config.model_type in {"qwen2", "gemma2"} and not force_flash_attn:
+        common_model_kwargs["attn_implementation"] = "eager"
+
     if config.model_type == "llama":
         model = LlamaForCausalLMWithRole.from_pretrained(
-            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+            model_args.model_name_or_path, **common_model_kwargs
         )
     elif config.model_type == "mistral":
         model = MistralForCausalLMWithRole.from_pretrained(
-            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+            model_args.model_name_or_path, **common_model_kwargs
         )
     elif config.model_type == "qwen2":
         model = Qwen2ForCausalLMWithRole.from_pretrained(
-            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+            model_args.model_name_or_path, **common_model_kwargs
         )
     elif config.model_type == "gemma2":
         model = Gemma2ForCausalLMWithRole.from_pretrained(
-            model_args.model_name_or_path, cache_dir=training_args.cache_dir, config=config
+            model_args.model_name_or_path, **common_model_kwargs
         )
     else:
         raise NotImplementedError(f"role model not implemented for model_type={config.model_type}")
